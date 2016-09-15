@@ -1,0 +1,28 @@
+#!/bin/bash
+
+if [ "$#" != 2 ]; then
+    echo "ERROR: Wrong number of parameters"
+    echo "Usage: set-host <host-name> <ip-address"
+    exit 1
+fi
+
+HOST_NAME=$1
+ADDRESS=$2
+
+TEMP=/tmp/hosts
+
+# Remove old entry if it exists
+if [ -e $HOSTS_FILE ]; then
+    grep -v "$HOST_NAME" $HOSTS_FILE > $TEMP
+fi
+
+# Add the updated entry
+echo "address=/$HOST_NAME/$ADDRESS" >> $TEMP
+
+# Move temp file
+mv $TEMP $HOSTS_FILE
+
+# Refresh dnsmasq
+service dnsmasq force-reload
+
+exit 0

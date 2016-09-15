@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# Load parameters
+source /etc/nginx/certs/params.conf
+WORKER_PROCESSES=$(nproc)
+
+################################################################
+# Configure main Nginx file
+TEMPLATE_FILE=/root/nginx.conf
+CONFIG_FILE=/etc/nginx/nginx.conf
+cp $TEMPLATE_FILE $CONFIG_FILE
+sed -i $CONFIG_FILE -e s,{WORKER_PROCESSES},$WORKER_PROCESSES,g
+sed -i $CONFIG_FILE -e s,{REQUEST_TIMEOUT},$REQUEST_TIMEOUT,g
+
+################################################################
+# Configure virtual host Nginx file
+TEMPLATE_FILE=/root/nginx-vhost.conf
+CONFIG_FILE=/etc/nginx/sites-available/default
+cp $TEMPLATE_FILE $CONFIG_FILE
+sed -i $CONFIG_FILE -e s,{NGINX_PORT},$NGINX_PORT,g
+sed -i $CONFIG_FILE -e s,{DNS_NAME},$DNS_NAME,g
+sed -i $CONFIG_FILE -e s,{ODOO_PORT},$ODOO_PORT,g
+sed -i $CONFIG_FILE -e s,{REQUEST_TIMEOUT},$REQUEST_TIMEOUT,g
+
+################################################################
+# Assign permissions to NginX files
+chown www-data:root /etc/nginx/certs/*
+chmod 440 /etc/nginx/certs/*
+chown -R www-data:www-data /var/lib/nginx
+chown -R www-data:www-data /var/log/nginx
+

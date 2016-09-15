@@ -1,0 +1,131 @@
+#!/bin/bash
+
+set -x
+
+################################################################
+# Function to clone a repo locally
+function clone_repo() {
+    REPO_URL=$1
+    IS_MAIN=$2
+    BRANCH=$3
+    COMMIT=$4
+
+    # Repo directory is the last part of their url
+    # (without the .git suffix)
+    REPO_DIR=`basename $REPO_URL | cut -d "." -f 1`
+
+    # Check if we should clone on main source or addons directory
+    if [ "$IS_MAIN" == "1" ]; then
+        REPO_BASE=/opt
+    else
+        REPO_BASE=/mnt/addons
+    fi
+    REPO_PATH=$REPO_BASE/$REPO_DIR
+
+    if [ -d "$REPO_PATH/.git" ]; then
+       # Repo exists, update their content
+       cd $REPO_PATH
+       git checkout $BRANCH
+       git pull
+    else
+       # Clone repository
+       cd $REPO_BASE
+       rm -rf $REPO_PATH/* 2>/dev/null
+       if [ "$IS_MAIN" == "1" ]; then
+           # Clone the main Odoo repo (single branch, without history)
+           git clone $REPO_URL --branch $BRANCH --single-branch --depth 1 $REPO_PATH
+       else
+           # Clone a extra addons repo (single branch, with history)
+           git clone $REPO_URL --branch $BRANCH --single-branch $REPO_PATH
+       fi
+       cd $REPO_PATH
+       git checkout $BRANCH
+    fi
+
+    # Ensure that changes on file permissions are ignored by Git
+    sed -i $REPO_PATH/.git/config -e "s|filemode = true|filemode = false|g"
+
+    # If a specific commit was configured, set code to that commit
+    if [ "$COMMIT" != "" ]; then
+        git reset --hard
+        git checkout $COMMIT
+    fi
+
+    # Assign permissions to files
+    chown -R odoo:root $REPO_PATH
+    chmod -R 644 $REPO_PATH
+    find $REPO_PATH -type d -exec chmod 744 {} +
+}
+
+# Load variables configured to be used on config files
+source /etc/odoo/params.conf
+
+# Allow our GitLab node as a known host (to clone via ssh)
+if [ ! -d /root/.ssh ]; then
+    mkdir /root/.ssh
+fi
+ssh-keyscan -t rsa $GITLAB_HOST >> /root/.ssh/known_hosts
+
+# Copy SSH keys from Odoo home directory (/var/lib/odoo) since it
+# contains the key added on GitLab (authorized to clone)
+cp -R /var/lib/odoo/.ssh/* /root/.ssh/
+chmod 600 /root/.ssh/id_rsa
+
+# Copy SSH config file to not have strict host checking for GitLab
+SSH_TEMPLATE_FILE=/root/ssh_config
+SSH_CONFIG_FILE=/root/.ssh/config
+cp $SSH_TEMPLATE_FILE $SSH_CONFIG_FILE
+
+# Clone (or update) repositories (include main repo and addons)
+for REPO_INFO in $(cat /etc/odoo/repos.conf); do
+    REPO_URL=`echo $REPO_INFO | cut -d "|" -f 1`
+    MAIN_REPO=`echo $REPO_INFO | cut -d "|" -f 2`
+    BRANCH=`echo $REPO_INFO | cut -d "|" -f 3`
+    COMMIT=`echo $REPO_INFO | cut -d "|" -f 4`
+
+    clone_repo "$REPO_URL" "$MAIN_REPO" "$BRANCH" "$COMMIT"
+done
+
+# Assign permissions on top (non recursive) source code directories
+chown odoo:root /opt/odoo
+chmod 744 /opt/odoo
+chown odoo:root /mnt/addons
+chmod 744 /mnt/addons
+
+# After clone the addons repos inject that list to the --addons-path option
+ADDONS_DIRS=`find /mnt/addons -maxdepth 1 -mindepth 1 -type d -not -path '*/\.*' | tr "\n" "," | head -c -1`
+ADDONS_LIST="/opt/odoo/addons,$ADDONS_DIRS"
+
+################################################################
+# Configure Odoo config file
+ODOO_TEMPLATE_FILE=/root/openerp-server.conf
+ODOO_CONFIG_FILE=/etc/odoo/openerp-server.conf
+cp $ODOO_TEMPLATE_FILE $ODOO_CONFIG_FILE
+sed -i $ODOO_CONFIG_FILE -e "s|{ADMIN_PWD}|$ADMIN_PWD|g"
+sed -i $ODOO_CONFIG_FILE -e "s|{ODOO_PORT}|$ODOO_PORT|g"
+sed -i $ODOO_CONFIG_FILE -e "s|{ADDONS_LIST}|$ADDONS_LIST|g"
+chown -R odoo:root $ODOO_CONFIG_FILE
+
+################################################################
+# Assign permissions to mounted directories (but not source code
+# because the clone_repo function assign those permissions)
+DIRECTORY=/etc/odoo
+chown -R odoo:root $DIRECTORY
+chmod 740 $DIRECTORY
+
+DIRECTORY=/var/lib/odoo
+chown -R odoo:root $DIRECTORY
+chmod -R 640 $DIRECTORY
+find $DIRECTORY -type d -exec chmod 740 {} +
+
+DIRECTORY=/var/log/odoo
+chown -R odoo:root $DIRECTORY
+chmod -R 640 $DIRECTORY
+find $DIRECTORY -type d -exec chmod 740 {} +
+
+# Externally, SSH keys were mounted into home directory of Odoo
+# at /var/lib/odoo/.ssh, configure permissions here for private key
+chmod 600 /var/lib/odoo/.ssh/id_rsa
+
+# Make Odoo script executable
+chmod +x /opt/odoo/openerp-server

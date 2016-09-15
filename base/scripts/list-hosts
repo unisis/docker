@@ -1,0 +1,11 @@
+#!/bin/bash
+
+if [ ! -e $HOSTS_FILE ]; then
+   echo ""
+   exit 0
+fi
+
+# Display hosts in a friendly format (dns=ip)
+cat $HOSTS_FILE | cut -d "/" -f 2,3 | tr "/" "="
+
+exit 0
