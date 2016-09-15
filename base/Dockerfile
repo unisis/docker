@@ -1,11 +1,11 @@
 ##################################################
 #
 #          Dockerfile for Base Image
-# (Ubuntu 14.04 with Dnsmasq and common utilities)
+# (Ubuntu 16.04 with Dnsmasq and common utilities)
 #
 ###################################################
 
-FROM ubuntu:14.04
+FROM ubuntu:16.04
 MAINTAINER Unisis <contacto@unisis.com.ar>
 
 # To allow the use of nano
